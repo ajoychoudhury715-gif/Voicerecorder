@@ -60,6 +60,7 @@ function getSupportedAudioConfig() {
 }
 
 const WHATSAPP_PREFILL_LIMIT = 3200;
+const CHATGPT_URL = 'https://chatgpt.com/';
 
 export default function Home() {
   const [recording, setRecording] = useState(false);
@@ -317,6 +318,50 @@ export default function Home() {
     return `${baseUrl}?${query.toString()}`;
   };
 
+  const buildChatGptPrompt = (mode) => {
+    const exportedAt = new Date().toLocaleString();
+    const selectedLanguage =
+      LANGUAGE_OPTIONS.find((option) => option.value === languageMode)?.label || 'Hindi + English';
+    const speechContextText = speechContext.trim();
+    const taskList =
+      mode === 'reply'
+        ? [
+            'Read the transcript and summary carefully.',
+            'Draft a polished follow-up message I can send after this conversation.',
+            'Keep the wording concise, professional, and action-oriented.',
+            'Highlight owners, deadlines, and any open questions before the final draft.',
+          ]
+        : [
+            'Read the transcript and summary carefully.',
+            'Check whether the summary matches the transcript and fix any missing or incorrect points.',
+            'Produce a sharper brief with action items, decisions, risks, and open questions.',
+            'Call out anything that still needs clarification from the speakers.',
+          ];
+
+    const sections = [
+      mode === 'reply'
+        ? 'I am pasting notes from Voice Note Studio. Help me draft the best follow-up message from them.'
+        : 'I am pasting notes from Voice Note Studio. Help me turn them into a stronger working brief.',
+      `Created: ${exportedAt}`,
+      `Language mode: ${selectedLanguage}`,
+      `Tasks:\n${taskList.map((item, index) => `${index + 1}. ${item}`).join('\n')}`,
+    ];
+
+    if (speechContextText) {
+      sections.push(`Preferred spellings and context\n${speechContextText}`);
+    }
+
+    if (summary) {
+      sections.push(`Structured Summary\n${summary}`);
+    }
+
+    if (transcript) {
+      sections.push(`Transcript\n${transcript}`);
+    }
+
+    return sections.join('\n\n');
+  };
+
   const copyExportText = async (text) => {
     if (!navigator.clipboard?.writeText) {
       throw new Error('Clipboard access is not available in this browser.');
@@ -389,6 +434,54 @@ export default function Home() {
       console.error('Copy failed:', copyError);
       setShareNotice(
         copyError instanceof Error ? copyError.message : 'Could not copy the export text.'
+      );
+    }
+  };
+
+  const handleCopyChatGptPrompt = async (mode) => {
+    const prompt = buildChatGptPrompt(mode);
+
+    if (!prompt.trim() || (!transcript && !summary)) {
+      setShareNotice('Record audio first so there is something meaningful to send to ChatGPT.');
+      return;
+    }
+
+    try {
+      await copyExportText(prompt);
+      setShareNotice(
+        mode === 'reply'
+          ? 'Reply-draft prompt copied. Paste it into ChatGPT to continue.'
+          : 'ChatGPT handoff prompt copied. Paste it into ChatGPT to continue.'
+      );
+    } catch (copyError) {
+      console.error('ChatGPT copy failed:', copyError);
+      setShareNotice(
+        copyError instanceof Error ? copyError.message : 'Could not copy the ChatGPT prompt.'
+      );
+    }
+  };
+
+  const handleChatGptExport = async (mode) => {
+    const prompt = buildChatGptPrompt(mode);
+
+    if (!prompt.trim() || (!transcript && !summary)) {
+      setShareNotice('Record audio first so there is something meaningful to send to ChatGPT.');
+      return;
+    }
+
+    window.open(CHATGPT_URL, '_blank', 'noopener,noreferrer');
+
+    try {
+      await copyExportText(prompt);
+      setShareNotice(
+        mode === 'reply'
+          ? 'Opened ChatGPT and copied a reply-ready prompt to your clipboard.'
+          : 'Opened ChatGPT and copied a ready-to-paste handoff prompt to your clipboard.'
+      );
+    } catch (copyError) {
+      console.error('ChatGPT export failed:', copyError);
+      setShareNotice(
+        'Opened ChatGPT, but clipboard access was blocked. Use Copy ChatGPT Prompt first, then paste it into the new chat.'
       );
     }
   };
@@ -649,57 +742,108 @@ export default function Home() {
           {hasResults && (
             <div className={styles.exportPanel}>
               <div className={styles.exportIntro}>
-                <p className={styles.exportEyebrow}>WhatsApp Export</p>
-                <h3 className={styles.exportTitle}>Send transcript and summary straight to chat</h3>
+                <p className={styles.exportEyebrow}>Share & Continue</p>
+                <h3 className={styles.exportTitle}>Send notes out or continue the work in ChatGPT</h3>
                 <p className={styles.exportText}>
-                  Add a WhatsApp number with country code if you want to open a specific chat, or
-                  leave it blank to choose inside WhatsApp. Long exports are copied to your
-                  clipboard automatically when needed.
+                  Use WhatsApp for fast sharing, or hand the same session into ChatGPT with a
+                  ready-made prompt. The ChatGPT flow works without MCP or API access because we
+                  copy the context for you and open a new chat.
                 </p>
               </div>
 
               <div className={styles.exportTools}>
-                <label className={styles.exportField}>
-                  <span className={styles.exportFieldLabel}>WhatsApp Number</span>
-                  <input
-                    className={styles.exportInput}
-                    type="tel"
-                    inputMode="tel"
-                    placeholder="Optional, e.g. 919876543210"
-                    value={whatsAppNumber}
-                    onChange={(event) => setWhatsAppNumber(event.target.value)}
-                  />
-                </label>
+                <div className={styles.exportGroup}>
+                  <div className={styles.exportGroupHeader}>
+                    <p className={styles.exportGroupTitle}>WhatsApp</p>
+                    <p className={styles.exportGroupText}>
+                      Add a WhatsApp number with country code if you want to open a specific chat,
+                      or leave it blank to choose inside WhatsApp.
+                    </p>
+                  </div>
 
-                <div className={styles.exportActions}>
-                  <button
-                    type="button"
-                    className={styles.exportButton}
-                    onClick={() => handleWhatsAppExport('summary')}
-                  >
-                    WhatsApp Summary
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.exportButton}
-                    onClick={() => handleWhatsAppExport('transcript')}
-                  >
-                    WhatsApp Transcript
-                  </button>
-                  <button
-                    type="button"
-                    className={[styles.exportButton, styles.exportPrimary].join(' ')}
-                    onClick={() => handleWhatsAppExport('all')}
-                  >
-                    WhatsApp Full Notes
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.exportButtonSecondary}
-                    onClick={handleCopyExport}
-                  >
-                    Copy Full Notes
-                  </button>
+                  <label className={styles.exportField}>
+                    <span className={styles.exportFieldLabel}>WhatsApp Number</span>
+                    <input
+                      className={styles.exportInput}
+                      type="tel"
+                      inputMode="tel"
+                      placeholder="Optional, e.g. 919876543210"
+                      value={whatsAppNumber}
+                      onChange={(event) => setWhatsAppNumber(event.target.value)}
+                    />
+                  </label>
+
+                  <div className={styles.exportActions}>
+                    <button
+                      type="button"
+                      className={styles.exportButton}
+                      onClick={() => handleWhatsAppExport('summary')}
+                    >
+                      WhatsApp Summary
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.exportButton}
+                      onClick={() => handleWhatsAppExport('transcript')}
+                    >
+                      WhatsApp Transcript
+                    </button>
+                    <button
+                      type="button"
+                      className={[styles.exportButton, styles.exportPrimary].join(' ')}
+                      onClick={() => handleWhatsAppExport('all')}
+                    >
+                      WhatsApp Full Notes
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.exportButtonSecondary}
+                      onClick={handleCopyExport}
+                    >
+                      Copy Full Notes
+                    </button>
+                  </div>
+                </div>
+
+                <div className={styles.exportGroup}>
+                  <div className={styles.exportGroupHeader}>
+                    <p className={styles.exportGroupTitle}>ChatGPT Fallback</p>
+                    <p className={styles.exportGroupText}>
+                      Open ChatGPT in a new tab and paste a prompt that already includes your
+                      transcript, summary, and clear next-step instructions.
+                    </p>
+                  </div>
+
+                  <div className={styles.exportActions}>
+                    <button
+                      type="button"
+                      className={[styles.exportButton, styles.exportPrimary].join(' ')}
+                      onClick={() => handleChatGptExport('brief')}
+                    >
+                      Open ChatGPT Brief
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.exportButton}
+                      onClick={() => handleChatGptExport('reply')}
+                    >
+                      Open ChatGPT Reply Draft
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.exportButtonSecondary}
+                      onClick={() => handleCopyChatGptPrompt('brief')}
+                    >
+                      Copy ChatGPT Prompt
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.exportButtonSecondary}
+                      onClick={() => handleCopyChatGptPrompt('reply')}
+                    >
+                      Copy Reply Prompt
+                    </button>
+                  </div>
                 </div>
 
                 <p className={styles.exportNotice}>{shareNotice || ' '}</p>

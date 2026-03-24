@@ -593,6 +593,35 @@
   gap: 14px;
 }
 
+.exportGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.46);
+  border: 1px solid rgba(26, 35, 51, 0.08);
+}
+
+.exportGroupHeader {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.exportGroupTitle {
+  margin: 0;
+  color: #0f3f38;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.exportGroupText {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.65;
+}
+
 .exportField {
   display: flex;
   flex-direction: column;
