@@ -118,10 +118,23 @@ export default function Home() {
         body: formData,
       });
 
-      const data = await response.json().catch(() => null);
+      const rawBody = await response.text();
+      let data = null;
+
+      if (rawBody) {
+        try {
+          data = JSON.parse(rawBody);
+        } catch {
+          data = null;
+        }
+      }
 
       if (!response.ok) {
-        throw new Error(data?.error || 'Error processing audio');
+        throw new Error(
+          data?.error ||
+            rawBody.trim() ||
+            `Audio processing failed with status ${response.status}.`
+        );
       }
 
       setTranscript(data?.transcript || '');
