@@ -1,6 +1,6 @@
 # Voice Summary Tool on Vercel
 
-A web-based voice recording and summarization tool using OpenAI's Whisper and GPT-4o, deployed on Vercel.
+A web-based voice recording and summarization tool using OpenAI's Whisper and GPT-4o, deployed on Vercel with Next.js route handlers.
 
 ## Features
 
@@ -18,4 +18,4 @@ A web-based voice recording and summarization tool using OpenAI's Whisper and GP
 
 ## Deployment
 
-This project is configured for Vercel deployment with Next.js and Python API routes.
+This project is configured for Vercel deployment with Next.js and a server-side `/api/transcribe` route.
