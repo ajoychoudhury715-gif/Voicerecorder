@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import styles from '../styles/Home.module.css';
 
 const AUDIO_MIME_TYPES = [
   'audio/webm;codecs=opus',
@@ -41,6 +42,7 @@ export default function Home() {
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const audioConfigRef = useRef({ mimeType: '', extension: 'webm' });
+  const waveformBars = [32, 58, 44, 68, 40, 72, 52, 64, 38, 70, 46, 60];
 
   const startRecording = async () => {
     try {
@@ -87,7 +89,6 @@ export default function Home() {
       console.error('Error accessing microphone:', error);
       const message = error.message || 'Microphone access denied or not available.';
       setError(message);
-      alert(message);
     }
   };
 
@@ -123,33 +124,203 @@ export default function Home() {
       console.error('Error:', error);
       const message = error.message || 'Error processing audio';
       setError(message);
-      alert(message);
     } finally {
       setLoading(false);
     }
   };
 
+  const hasResults = Boolean(transcript || summary);
+  const statusLabel = error
+    ? 'Attention needed'
+    : loading
+      ? 'Generating notes'
+      : recording
+        ? 'Recording live'
+        : hasResults
+          ? 'Ready for another take'
+          : 'Ready to record';
+
+  const statusClassName = [
+    styles.statusPill,
+    error
+      ? styles.statusError
+      : loading
+        ? styles.statusLoading
+        : recording
+          ? styles.statusRecording
+          : styles.statusReady,
+  ].join(' ');
+
+  const helperText = error
+    ? error
+    : loading
+      ? 'Transcribing your recording and shaping the summary now.'
+      : recording
+        ? 'Speak naturally. Everything is sent only after you stop the recording.'
+        : 'Tap once to start recording, then tap again when you are ready for notes.';
+
+  const primaryButtonLabel = recording
+    ? 'Finish Recording'
+    : loading
+      ? 'Processing...'
+      : 'Start Recording';
+
   return (
-    <div style={{ padding: '20px', fontFamily: 'Arial, sans-serif' }}>
-      <h1>Voice Summary Tool</h1>
-      <p>Record your voice, get a transcript and summary using AI.</p>
-      <button onClick={recording ? stopRecording : startRecording} disabled={loading}>
-        {recording ? 'Stop Recording' : 'Start Recording'}
-      </button>
-      {loading && <p>Processing...</p>}
-      {error && <p style={{ color: '#b00020' }}>{error}</p>}
-      {transcript && (
-        <div>
-          <h2>Transcript</h2>
-          <p style={{ whiteSpace: 'pre-wrap' }}>{transcript}</p>
-        </div>
-      )}
-      {summary && (
-        <div>
-          <h2>Summary</h2>
-          <p style={{ whiteSpace: 'pre-wrap' }}>{summary}</p>
-        </div>
-      )}
+    <div className={styles.page}>
+      <div className={styles.orbOne} aria-hidden="true" />
+      <div className={styles.orbTwo} aria-hidden="true" />
+      <div className={styles.gridGlow} aria-hidden="true" />
+
+      <main className={styles.shell}>
+        <section className={styles.heroSection}>
+          <div className={styles.heroCopy}>
+            <p className={styles.eyebrow}>Voice Note Studio</p>
+            <h1 className={styles.title}>
+              Capture the room.
+              <span className={styles.titleAccent}> Leave with the brief.</span>
+            </h1>
+            <p className={styles.description}>
+              Record a meeting recap, an idea dump, or a quick voice memo. The app turns it into
+              a clean transcript and a structured summary with action items, decisions, and a sharp
+              overview.
+            </p>
+
+            <div className={styles.featureGrid}>
+              <article className={styles.featureCard}>
+                <span className={styles.featureLabel}>Capture</span>
+                <strong className={styles.featureValue}>One-button recording in the browser</strong>
+              </article>
+              <article className={styles.featureCard}>
+                <span className={styles.featureLabel}>Clarity</span>
+                <strong className={styles.featureValue}>Transcript first, summary right after</strong>
+              </article>
+              <article className={styles.featureCard}>
+                <span className={styles.featureLabel}>Output</span>
+                <strong className={styles.featureValue}>Built for decisions, owners, and next steps</strong>
+              </article>
+            </div>
+          </div>
+
+          <aside className={styles.controlPanel}>
+            <div className={styles.panelTop}>
+              <div>
+                <p className={styles.panelLabel}>Recorder</p>
+                <h2 className={styles.panelTitle}>Speak now, process in one pass</h2>
+              </div>
+              <div className={statusClassName}>
+                <span className={styles.statusDot} />
+                <span>{statusLabel}</span>
+              </div>
+            </div>
+
+            <div className={styles.waveform} aria-hidden="true">
+              {waveformBars.map((height, index) => (
+                <span
+                  key={index}
+                  className={[
+                    styles.waveBar,
+                    recording || loading ? styles.waveActive : '',
+                  ].join(' ')}
+                  style={{
+                    '--bar-height': `${height}%`,
+                    animationDelay: `${index * 80}ms`,
+                  }}
+                />
+              ))}
+            </div>
+
+            <button
+              className={[
+                styles.primaryButton,
+                recording ? styles.stopButton : styles.startButton,
+              ].join(' ')}
+              onClick={recording ? stopRecording : startRecording}
+              disabled={loading}
+            >
+              <span
+                className={[
+                  styles.buttonIcon,
+                  recording ? styles.buttonIconStop : styles.buttonIconStart,
+                ].join(' ')}
+                aria-hidden="true"
+              />
+              <span>{primaryButtonLabel}</span>
+            </button>
+
+            <p className={styles.helperText}>{helperText}</p>
+
+            {error && (
+              <div className={styles.errorBanner} role="alert">
+                <strong>Audio processing issue</strong>
+                <p>{error}</p>
+              </div>
+            )}
+
+            <div className={styles.panelMeta}>
+              <div className={styles.metaItem}>
+                <span className={styles.metaLabel}>Format</span>
+                <strong>{(audioConfigRef.current.extension || 'webm').toUpperCase()}</strong>
+              </div>
+              <div className={styles.metaItem}>
+                <span className={styles.metaLabel}>Transcript</span>
+                <strong>{transcript ? 'Ready' : 'Waiting'}</strong>
+              </div>
+              <div className={styles.metaItem}>
+                <span className={styles.metaLabel}>Summary</span>
+                <strong>{summary ? 'Ready' : 'Waiting'}</strong>
+              </div>
+            </div>
+          </aside>
+        </section>
+
+        <section className={styles.resultsSection} aria-live="polite">
+          <div className={styles.resultsHeader}>
+            <div>
+              <p className={styles.sectionEyebrow}>Session Output</p>
+              <h2 className={styles.sectionTitle}>Readable notes, not a wall of text</h2>
+            </div>
+            <p className={styles.sectionHint}>
+              Your recording stays on the page until you start a new take.
+            </p>
+          </div>
+
+          <div className={styles.resultsGrid}>
+            <article className={styles.resultCard}>
+              <div className={styles.resultTop}>
+                <span className={styles.resultTag}>Raw transcript</span>
+                <h3 className={styles.resultTitle}>Everything that was said</h3>
+              </div>
+              <div
+                className={[
+                  styles.resultBody,
+                  transcript ? '' : styles.resultPlaceholder,
+                ].join(' ')}
+              >
+                {transcript ||
+                  'Your transcript will appear here after the recording is processed. Use it to review details, wording, and context before you share anything.'}
+              </div>
+            </article>
+
+            <article className={[styles.resultCard, styles.summaryCard].join(' ')}>
+              <div className={styles.resultTop}>
+                <span className={[styles.resultTag, styles.summaryTag].join(' ')}>
+                  Structured summary
+                </span>
+                <h3 className={styles.resultTitle}>What matters next</h3>
+              </div>
+              <div
+                className={[
+                  styles.resultBody,
+                  summary ? '' : styles.resultPlaceholder,
+                ].join(' ')}
+              >
+                {summary ||
+                  'Action items, key decisions, and a concise overview will appear here once the AI finishes shaping your notes.'}
+              </div>
+            </article>
+          </div>
+        </section>
+      </main>
     </div>
   );
 }
