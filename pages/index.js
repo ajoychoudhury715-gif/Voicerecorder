@@ -21,6 +21,9 @@ const MICROPHONE_CONSTRAINTS = {
   sampleSize: { ideal: 16 },
 };
 const MAX_SPEECH_CONTEXT_LENGTH = 500;
+const TARGET_AUDIO_BITS_PER_SECOND = 64000;
+const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
+const MAX_UPLOAD_SIZE_LABEL = '4 MB';
 
 function getFileExtensionForMimeType(mimeType) {
   if (mimeType.includes('mp4')) {
@@ -76,7 +79,7 @@ export default function Home() {
       });
       const audioConfig = getSupportedAudioConfig();
       const mediaRecorderOptions = {
-        audioBitsPerSecond: 256000,
+        audioBitsPerSecond: TARGET_AUDIO_BITS_PER_SECOND,
       };
 
       if (audioConfig.mimeType) {
@@ -150,6 +153,14 @@ export default function Home() {
   };
 
   const processAudio = async (audioBlob, fileName) => {
+    if (audioBlob.size > MAX_UPLOAD_BYTES) {
+      setShareNotice('');
+      setError(
+        `This recording is too large to upload to the current Vercel deployment. Keep clips under about ${MAX_UPLOAD_SIZE_LABEL} or record a shorter note.`
+      );
+      return;
+    }
+
     setLoading(true);
     setShareNotice('');
     setError('');
@@ -327,7 +338,7 @@ export default function Home() {
         ? 'Recording is paused. Resume when you want to keep adding audio, or finish the take now.'
       : recording
         ? 'Speak naturally and keep the microphone close. Everything is sent only after you stop the recording.'
-        : 'Add language mode or speech context first if you expect names, jargon, or mixed Hinglish, then start recording.';
+        : `Add language mode or speech context first if you expect names, jargon, or mixed Hinglish, then start recording. For this deployment, keep clips under about ${MAX_UPLOAD_SIZE_LABEL}.`;
 
   const primaryButtonLabel = recording
     ? 'Finish Recording'

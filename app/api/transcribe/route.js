@@ -19,7 +19,7 @@ Keep the language professional and concise. Do not add anything outside these th
 const API_BASE_URL = 'https://api.groq.com/openai/v1';
 const TRANSCRIPTION_MODEL = 'whisper-large-v3';
 const SUMMARY_MODEL = 'llama-3.1-8b-instant';
-const MAX_AUDIO_BYTES = 100 * 1024 * 1024;
+const MAX_AUDIO_BYTES = 4 * 1024 * 1024;
 const MAX_SPEECH_CONTEXT_CHARS = 500;
 
 export const runtime = 'nodejs';
@@ -197,7 +197,7 @@ export async function POST(request) {
 
     if (audioFile.size > MAX_AUDIO_BYTES) {
       return Response.json(
-        { error: 'The audio file is larger than the current 100 MB upload limit.' },
+        { error: 'The audio file is larger than the current 4 MB upload limit for this deployment.' },
         { status: 400 }
       );
     }
