@@ -1,3 +1,5 @@
+import { del } from '@vercel/blob';
+
 const SUMMARY_PROMPT = `
 You are an expert meeting-notes assistant.
 Given a raw spoken transcript, produce a structured summary with exactly three sections:
@@ -19,12 +21,17 @@ Keep the language professional and concise. Do not add anything outside these th
 const API_BASE_URL = 'https://api.groq.com/openai/v1';
 const TRANSCRIPTION_MODEL = 'whisper-large-v3';
 const SUMMARY_MODEL = 'llama-3.1-8b-instant';
-const MAX_AUDIO_BYTES = 4 * 1024 * 1024;
+const MAX_SINGLE_AUDIO_BYTES = 20 * 1024 * 1024;
+const MAX_AUDIO_CHUNKS = 24;
 const MAX_SPEECH_CONTEXT_CHARS = 500;
+const MAX_SUMMARY_SOURCE_CHARS = 12000;
+const MAX_SUMMARY_REDUCTION_PASSES = 3;
+const PROVIDER_RETRY_ATTEMPTS = 4;
+const RATE_LIMIT_BACKOFF_MS = 6000;
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 async function extractErrorMessage(response) {
   const contentType = response.headers.get('content-type') || '';
@@ -50,15 +57,61 @@ function sanitizeProviderErrorMessage(message) {
     return 'The speech provider quota has been exceeded. Update your provider key or billing settings and try again.';
   }
 
-  if (normalized.includes('api key') || normalized.includes('authentication') || normalized.includes('unauthorized')) {
+  if (
+    normalized.includes('api key') ||
+    normalized.includes('authentication') ||
+    normalized.includes('unauthorized')
+  ) {
     return 'The provider API key is invalid or missing. Check your server environment variables and try again.';
   }
 
-  if (normalized.includes('rate limit') || normalized.includes('too many requests')) {
-    return 'Too many requests hit the speech provider. Wait a moment and try again.';
+  if (
+    normalized.includes('rate limit') ||
+    normalized.includes('too many requests') ||
+    normalized.includes('try again in')
+  ) {
+    return 'The speech provider rate limit was reached while processing this conversation. Please wait a moment and try again.';
   }
 
   return message;
+}
+
+function sleep(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function shouldRetryProviderError(message) {
+  const normalized = message.toLowerCase();
+
+  return (
+    normalized.includes('rate limit') ||
+    normalized.includes('too many requests') ||
+    normalized.includes('try again in') ||
+    normalized.includes('temporarily unavailable') ||
+    normalized.includes('timed out') ||
+    normalized.includes('timeout')
+  );
+}
+
+async function withProviderRetries(operation) {
+  let lastError = null;
+
+  for (let attempt = 0; attempt < PROVIDER_RETRY_ATTEMPTS; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      const message = error instanceof Error ? error.message : 'Unknown provider error.';
+
+      if (!shouldRetryProviderError(message) || attempt === PROVIDER_RETRY_ATTEMPTS - 1) {
+        throw error;
+      }
+
+      await sleep(RATE_LIMIT_BACKOFF_MS * (attempt + 1));
+    }
+  }
+
+  throw lastError || new Error('Provider request failed.');
 }
 
 function normalizeSpeechContext(value) {
@@ -69,7 +122,22 @@ function normalizeSpeechContext(value) {
   return value.replace(/\s+/g, ' ').trim().slice(0, MAX_SPEECH_CONTEXT_CHARS);
 }
 
-function buildTranscriptionPrompt(language, speechContext) {
+function normalizeLanguage(value) {
+  return value === 'hi' || value === 'en' ? value : 'auto';
+}
+
+function normalizeAudioUrls(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter((item) => typeof item === 'string')
+    .map((item) => item.trim())
+    .filter((item) => item.startsWith('https://'));
+}
+
+function buildTranscriptionPrompt(language, speechContext, previousTranscriptTail = '') {
   const instructions = [
     'Transcribe the audio faithfully.',
     'Use natural punctuation and paragraph breaks, but do not summarize, translate, or paraphrase.',
@@ -90,12 +158,26 @@ function buildTranscriptionPrompt(language, speechContext) {
     );
   }
 
+  if (previousTranscriptTail) {
+    instructions.push(
+      `This chunk follows the prior transcript tail. Use it only as context and do not repeat it: ${previousTranscriptTail}`
+    );
+  }
+
   return instructions.join(' ');
 }
 
-async function transcribeAudio(audioFile, language, speechContext) {
+async function transcribeAudio({ audioFile, audioUrl, language, speechContext, previousTranscriptTail = '' }) {
   const formData = new FormData();
-  formData.append('file', audioFile, audioFile.name || 'recording.webm');
+
+  if (audioFile) {
+    formData.append('file', audioFile, audioFile.name || 'recording.webm');
+  } else if (audioUrl) {
+    formData.append('url', audioUrl);
+  } else {
+    throw new Error('No audio source provided for transcription.');
+  }
+
   formData.append('model', TRANSCRIPTION_MODEL);
   formData.append('response_format', 'verbose_json');
   formData.append('temperature', '0');
@@ -104,7 +186,7 @@ async function transcribeAudio(audioFile, language, speechContext) {
     formData.append('language', language);
   }
 
-  const prompt = buildTranscriptionPrompt(language, speechContext);
+  const prompt = buildTranscriptionPrompt(language, speechContext, previousTranscriptTail);
   if (prompt) {
     formData.append('prompt', prompt);
   }
@@ -125,7 +207,105 @@ async function transcribeAudio(audioFile, language, speechContext) {
   return data?.text?.trim() || '';
 }
 
-function buildSummaryPrompt(language, speechContext) {
+async function transcribeAudioUrls(audioUrls, language, speechContext) {
+  const transcriptChunks = [];
+
+  for (let index = 0; index < audioUrls.length; index += 1) {
+    const previousTranscriptTail = transcriptChunks.length
+      ? transcriptChunks[transcriptChunks.length - 1].slice(-220)
+      : '';
+
+    const transcriptChunk = await withProviderRetries(() =>
+      transcribeAudio({
+        audioUrl: audioUrls[index],
+        language,
+        speechContext,
+        previousTranscriptTail,
+      })
+    );
+
+    if (transcriptChunk) {
+      transcriptChunks.push(transcriptChunk);
+    }
+  }
+
+  return transcriptChunks.join('\n\n').trim();
+}
+
+function splitLongBlock(text, maxChars) {
+  const words = text.split(/\s+/).filter(Boolean);
+  const chunks = [];
+  let current = '';
+
+  words.forEach((word) => {
+    const nextValue = current ? `${current} ${word}` : word;
+
+    if (nextValue.length <= maxChars) {
+      current = nextValue;
+      return;
+    }
+
+    if (current) {
+      chunks.push(current);
+    }
+
+    current = word;
+  });
+
+  if (current) {
+    chunks.push(current);
+  }
+
+  return chunks;
+}
+
+function splitTextForSummary(text, maxChars = MAX_SUMMARY_SOURCE_CHARS) {
+  const normalizedText = text.replace(/\r/g, '').trim();
+
+  if (!normalizedText) {
+    return [];
+  }
+
+  const paragraphs = normalizedText.split(/\n{2,}/).map((paragraph) => paragraph.trim()).filter(Boolean);
+  const chunks = [];
+  let current = '';
+
+  paragraphs.forEach((paragraph) => {
+    if (paragraph.length > maxChars) {
+      if (current) {
+        chunks.push(current);
+        current = '';
+      }
+
+      splitLongBlock(paragraph, maxChars).forEach((block) => {
+        chunks.push(block);
+      });
+
+      return;
+    }
+
+    const nextValue = current ? `${current}\n\n${paragraph}` : paragraph;
+
+    if (nextValue.length <= maxChars) {
+      current = nextValue;
+      return;
+    }
+
+    if (current) {
+      chunks.push(current);
+    }
+
+    current = paragraph;
+  });
+
+  if (current) {
+    chunks.push(current);
+  }
+
+  return chunks;
+}
+
+function buildSummaryPrompt(language, speechContext, mode = 'final') {
   const languageInstruction =
     language === 'hi'
       ? 'Write the full summary in Hindi.'
@@ -137,10 +317,17 @@ function buildSummaryPrompt(language, speechContext) {
     ? `Preserve the exact spelling of these names or terms whenever they appear in the transcript or are clearly implied: ${speechContext}`
     : '';
 
-  return [SUMMARY_PROMPT, languageInstruction, glossaryInstruction].filter(Boolean).join('\n\n');
+  const modeInstruction =
+    mode === 'chunk'
+      ? 'You are summarizing only one excerpt of a much longer conversation. Capture only the facts from this excerpt and keep the output concise so it can be merged with other excerpt summaries later.'
+      : 'You may be given either the full transcript or merged excerpt summaries from a longer conversation. Produce the best final meeting-style summary you can from the material provided.';
+
+  return [SUMMARY_PROMPT, modeInstruction, languageInstruction, glossaryInstruction]
+    .filter(Boolean)
+    .join('\n\n');
 }
 
-async function summarizeTranscript(transcript, language, speechContext) {
+async function summarizeText(sourceText, language, speechContext, mode) {
   const response = await fetch(`${API_BASE_URL}/chat/completions`, {
     method: 'POST',
     headers: {
@@ -149,10 +336,10 @@ async function summarizeTranscript(transcript, language, speechContext) {
     },
     body: JSON.stringify({
       model: SUMMARY_MODEL,
-      temperature: 0.3,
+      temperature: 0.2,
       messages: [
-        { role: 'system', content: buildSummaryPrompt(language, speechContext) },
-        { role: 'user', content: `Transcript:\n\n${transcript}` },
+        { role: 'system', content: buildSummaryPrompt(language, speechContext, mode) },
+        { role: 'user', content: `Transcript material:\n\n${sourceText}` },
       ],
     }),
   });
@@ -171,6 +358,53 @@ async function summarizeTranscript(transcript, language, speechContext) {
   return summary;
 }
 
+async function summarizeTranscript(transcript, language, speechContext) {
+  const initialChunks = splitTextForSummary(transcript);
+
+  if (initialChunks.length <= 1) {
+    return withProviderRetries(() =>
+      summarizeText(initialChunks[0] || transcript, language, speechContext, 'final')
+    );
+  }
+
+  let currentSources = initialChunks;
+
+  for (let pass = 0; pass < MAX_SUMMARY_REDUCTION_PASSES; pass += 1) {
+    const partialSummaries = [];
+
+    for (let index = 0; index < currentSources.length; index += 1) {
+      const partialSummary = await withProviderRetries(() =>
+        summarizeText(currentSources[index], language, speechContext, 'chunk')
+      );
+
+      partialSummaries.push(`Excerpt ${index + 1}\n${partialSummary}`);
+    }
+
+    const combinedSummarySource = partialSummaries.join('\n\n');
+    const reducedSources = splitTextForSummary(combinedSummarySource);
+
+    if (reducedSources.length <= 1) {
+      return withProviderRetries(() =>
+        summarizeText(combinedSummarySource, language, speechContext, 'final')
+      );
+    }
+
+    currentSources = reducedSources;
+  }
+
+  return withProviderRetries(() =>
+    summarizeText(currentSources.join('\n\n'), language, speechContext, 'final')
+  );
+}
+
+async function cleanupUploadedAudio(audioUrls) {
+  if (!process.env.BLOB_READ_WRITE_TOKEN || !audioUrls.length) {
+    return;
+  }
+
+  await Promise.allSettled(audioUrls.map((audioUrl) => del(audioUrl)));
+}
+
 export async function POST(request) {
   if (!process.env.GROQ_API_KEY) {
     return Response.json(
@@ -179,30 +413,61 @@ export async function POST(request) {
     );
   }
 
+  const contentType = request.headers.get('content-type') || '';
+  let uploadedAudioUrls = [];
+
   try {
-    const formData = await request.formData();
-    const audioFile = formData.get('audio');
-    const language = formData.get('language');
-    const speechContext = normalizeSpeechContext(formData.get('speechContext'));
-    const normalizedLanguage =
-      language === 'hi' || language === 'en' ? language : 'auto';
+    let normalizedLanguage = 'auto';
+    let speechContext = '';
+    let transcript = '';
 
-    if (!(audioFile instanceof File)) {
-      return Response.json({ error: 'No audio file provided.' }, { status: 400 });
-    }
+    if (contentType.includes('application/json')) {
+      const body = await request.json();
+      uploadedAudioUrls = normalizeAudioUrls(body?.audioUrls);
+      normalizedLanguage = normalizeLanguage(body?.language);
+      speechContext = normalizeSpeechContext(body?.speechContext);
 
-    if (audioFile.size === 0) {
-      return Response.json({ error: 'The recorded audio file is empty.' }, { status: 400 });
-    }
+      if (!uploadedAudioUrls.length) {
+        return Response.json({ error: 'No uploaded audio segments were provided.' }, { status: 400 });
+      }
 
-    if (audioFile.size > MAX_AUDIO_BYTES) {
-      return Response.json(
-        { error: 'The audio file is larger than the current 4 MB upload limit for this deployment.' },
-        { status: 400 }
+      if (uploadedAudioUrls.length > MAX_AUDIO_CHUNKS) {
+        return Response.json(
+          { error: `This recording exceeds the supported chunk count of ${MAX_AUDIO_CHUNKS} segments.` },
+          { status: 400 }
+        );
+      }
+
+      transcript = await transcribeAudioUrls(uploadedAudioUrls, normalizedLanguage, speechContext);
+    } else {
+      const formData = await request.formData();
+      const audioFile = formData.get('audio');
+      normalizedLanguage = normalizeLanguage(formData.get('language'));
+      speechContext = normalizeSpeechContext(formData.get('speechContext'));
+
+      if (!(audioFile instanceof File)) {
+        return Response.json({ error: 'No audio file provided.' }, { status: 400 });
+      }
+
+      if (audioFile.size === 0) {
+        return Response.json({ error: 'The recorded audio file is empty.' }, { status: 400 });
+      }
+
+      if (audioFile.size > MAX_SINGLE_AUDIO_BYTES) {
+        return Response.json(
+          { error: 'The uploaded audio file is too large for direct processing. Please record again using segmented uploads.' },
+          { status: 400 }
+        );
+      }
+
+      transcript = await withProviderRetries(() =>
+        transcribeAudio({
+          audioFile,
+          language: normalizedLanguage,
+          speechContext,
+        })
       );
     }
-
-    const transcript = await transcribeAudio(audioFile, normalizedLanguage, speechContext);
 
     if (!transcript) {
       return Response.json({ error: 'No transcript generated.' }, { status: 400 });
@@ -210,7 +475,11 @@ export async function POST(request) {
 
     const summary = await summarizeTranscript(transcript, normalizedLanguage, speechContext);
 
-    return Response.json({ transcript, summary });
+    return Response.json({
+      transcript,
+      summary,
+      chunkCount: uploadedAudioUrls.length || 1,
+    });
   } catch (error) {
     console.error('Error processing audio:', error);
 
@@ -222,5 +491,7 @@ export async function POST(request) {
       },
       { status: 500 }
     );
+  } finally {
+    await cleanupUploadedAudio(uploadedAudioUrls);
   }
 }

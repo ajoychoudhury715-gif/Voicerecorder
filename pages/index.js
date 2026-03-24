@@ -1,3 +1,4 @@
+import { upload } from '@vercel/blob/client';
 import { useRef, useState } from 'react';
 import styles from '../styles/Home.module.css';
 
@@ -22,8 +23,16 @@ const MICROPHONE_CONSTRAINTS = {
 };
 const MAX_SPEECH_CONTEXT_LENGTH = 500;
 const TARGET_AUDIO_BITS_PER_SECOND = 64000;
-const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
-const MAX_UPLOAD_SIZE_LABEL = '4 MB';
+const RECORDING_CHUNK_TIMESLICE_MS = 15 * 60 * 1000;
+const MAX_BLOB_CHUNK_BYTES = 20 * 1024 * 1024;
+
+function createRecordingSessionId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+
+  return `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
 
 function getFileExtensionForMimeType(mimeType) {
   if (mimeType.includes('mp4')) {
@@ -58,15 +67,79 @@ export default function Home() {
   const [transcript, setTranscript] = useState('');
   const [summary, setSummary] = useState('');
   const [loading, setLoading] = useState(false);
+  const [processingStage, setProcessingStage] = useState('idle');
   const [error, setError] = useState('');
   const [shareNotice, setShareNotice] = useState('');
   const [whatsAppNumber, setWhatsAppNumber] = useState('');
   const [languageMode, setLanguageMode] = useState('auto');
   const [speechContext, setSpeechContext] = useState('');
+  const [uploadedChunkCount, setUploadedChunkCount] = useState(0);
   const mediaRecorderRef = useRef(null);
-  const audioChunksRef = useRef([]);
   const audioConfigRef = useRef({ mimeType: '', extension: 'webm' });
+  const uploadQueueRef = useRef(Promise.resolve());
+  const uploadErrorRef = useRef(null);
+  const uploadedChunksRef = useRef([]);
+  const chunkSequenceRef = useRef(0);
+  const sessionKeyRef = useRef('');
   const waveformBars = [32, 58, 44, 68, 40, 72, 52, 64, 38, 70, 46, 60];
+
+  const resetRecordingSession = () => {
+    sessionKeyRef.current = createRecordingSessionId();
+    uploadQueueRef.current = Promise.resolve();
+    uploadErrorRef.current = null;
+    uploadedChunksRef.current = [];
+    chunkSequenceRef.current = 0;
+    setUploadedChunkCount(0);
+  };
+
+  const uploadAudioChunk = async (audioChunk, mimeType, extension) => {
+    if (audioChunk.size === 0) {
+      return;
+    }
+
+    if (audioChunk.size > MAX_BLOB_CHUNK_BYTES) {
+      throw new Error('A recording segment became too large to upload safely. Please stop and try again.');
+    }
+
+    const chunkNumber = chunkSequenceRef.current + 1;
+    chunkSequenceRef.current = chunkNumber;
+
+    const pathname = `recordings/${sessionKeyRef.current}/chunk-${String(chunkNumber).padStart(4, '0')}.${extension}`;
+    const blob = await upload(pathname, audioChunk, {
+      access: 'public',
+      contentType: mimeType || 'audio/webm',
+      handleUploadUrl: '/api/audio/upload',
+      clientPayload: JSON.stringify({
+        sessionKey: sessionKeyRef.current,
+        chunkNumber,
+      }),
+    });
+
+    uploadedChunksRef.current.push({
+      chunkNumber,
+      url: blob.url,
+    });
+    uploadedChunksRef.current.sort((left, right) => left.chunkNumber - right.chunkNumber);
+    setUploadedChunkCount(uploadedChunksRef.current.length);
+  };
+
+  const enqueueChunkUpload = (audioChunk) => {
+    const { mimeType, extension } = audioConfigRef.current;
+    const nextUpload = uploadQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        if (uploadErrorRef.current) {
+          return;
+        }
+
+        await uploadAudioChunk(audioChunk, mimeType, extension);
+      });
+
+    uploadQueueRef.current = nextUpload.catch((uploadError) => {
+      uploadErrorRef.current = uploadError;
+      console.error('Chunk upload failed:', uploadError);
+    });
+  };
 
   const startRecording = async () => {
     try {
@@ -89,13 +162,15 @@ export default function Home() {
       const mediaRecorder = new MediaRecorder(stream, mediaRecorderOptions);
       const resolvedMimeType = mediaRecorder.mimeType || audioConfig.mimeType;
 
+      resetRecordingSession();
       mediaRecorderRef.current = mediaRecorder;
-      audioChunksRef.current = [];
       audioConfigRef.current = {
         mimeType: resolvedMimeType,
         extension: getFileExtensionForMimeType(resolvedMimeType),
       };
       setPaused(false);
+      setLoading(false);
+      setProcessingStage('idle');
       setShareNotice('');
       setError('');
       setTranscript('');
@@ -103,22 +178,46 @@ export default function Home() {
 
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
+          enqueueChunkUpload(event.data);
         }
       };
 
       mediaRecorder.onstop = async () => {
         setPaused(false);
-        const { mimeType, extension } = audioConfigRef.current;
-        const audioBlob = new Blob(audioChunksRef.current, {
-          type: mimeType || 'audio/webm',
-        });
+        setLoading(true);
+        setProcessingStage('uploading');
+        setShareNotice('');
+        setError('');
 
-        await processAudio(audioBlob, `recording.${extension}`);
-        stream.getTracks().forEach(track => track.stop());
+        try {
+          await uploadQueueRef.current;
+
+          if (uploadErrorRef.current) {
+            throw uploadErrorRef.current;
+          }
+
+          if (!uploadedChunksRef.current.length) {
+            throw new Error('No audio was captured. Please try another take.');
+          }
+
+          await processAudio({
+            audioUrls: uploadedChunksRef.current.map((chunk) => chunk.url),
+          });
+        } catch (processingError) {
+          console.error('Error preparing audio:', processingError);
+          const message =
+            processingError instanceof Error
+              ? processingError.message
+              : 'Error preparing the recording for transcription.';
+          setError(message);
+        } finally {
+          setLoading(false);
+          setProcessingStage('idle');
+          stream.getTracks().forEach(track => track.stop());
+        }
       };
 
-      mediaRecorder.start();
+      mediaRecorder.start(RECORDING_CHUNK_TIMESLICE_MS);
       setRecording(true);
     } catch (error) {
       console.error('Error accessing microphone:', error);
@@ -152,28 +251,19 @@ export default function Home() {
     setPaused(true);
   };
 
-  const processAudio = async (audioBlob, fileName) => {
-    if (audioBlob.size > MAX_UPLOAD_BYTES) {
-      setShareNotice('');
-      setError(
-        `This recording is too large to upload to the current Vercel deployment. Keep clips under about ${MAX_UPLOAD_SIZE_LABEL} or record a shorter note.`
-      );
-      return;
-    }
-
-    setLoading(true);
-    setShareNotice('');
-    setError('');
-
-    const formData = new FormData();
-    formData.append('audio', audioBlob, fileName);
-    formData.append('language', languageMode);
-    formData.append('speechContext', speechContext.trim());
-
+  const processAudio = async ({ audioUrls }) => {
     try {
+      setProcessingStage('transcribing');
       const response = await fetch('/api/transcribe', {
         method: 'POST',
-        body: formData,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          audioUrls,
+          language: languageMode,
+          speechContext: speechContext.trim(),
+        }),
       });
 
       const rawBody = await response.text();
@@ -195,14 +285,13 @@ export default function Home() {
         );
       }
 
+      setProcessingStage('summarizing');
       setTranscript(data?.transcript || '');
       setSummary(data?.summary || '');
     } catch (error) {
       console.error('Error:', error);
       const message = error.message || 'Error processing audio';
       setError(message);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -305,17 +394,42 @@ export default function Home() {
   };
 
   const hasResults = Boolean(transcript || summary);
-  const statusLabel = error
-    ? 'Attention needed'
-    : loading
-      ? 'Generating notes'
-      : paused
-        ? 'Recording paused'
-      : recording
-        ? 'Recording live'
-        : hasResults
-          ? 'Ready for another take'
-          : 'Ready to record';
+  const processedSegmentCount = uploadedChunkCount || 1;
+  const statusLabel = (() => {
+    if (error) {
+      return 'Attention needed';
+    }
+
+    if (loading) {
+      if (processingStage === 'uploading') {
+        return 'Uploading audio';
+      }
+
+      if (processingStage === 'transcribing') {
+        return 'Transcribing audio';
+      }
+
+      if (processingStage === 'summarizing') {
+        return 'Generating summary';
+      }
+
+      return 'Processing';
+    }
+
+    if (paused) {
+      return 'Recording paused';
+    }
+
+    if (recording) {
+      return 'Recording live';
+    }
+
+    if (hasResults) {
+      return 'Ready for another take';
+    }
+
+    return 'Ready to record';
+  })();
 
   const statusClassName = [
     styles.statusPill,
@@ -333,12 +447,16 @@ export default function Home() {
   const helperText = error
     ? error
     : loading
-      ? 'Transcribing your recording and shaping the summary now.'
+      ? processingStage === 'uploading'
+        ? `Uploading ${processedSegmentCount} recorded segment${processedSegmentCount === 1 ? '' : 's'} from secure browser storage.`
+        : processingStage === 'transcribing'
+          ? `Transcribing ${processedSegmentCount} audio segment${processedSegmentCount === 1 ? '' : 's'} now.`
+          : 'Building a structured summary from the full conversation.'
       : paused
         ? 'Recording is paused. Resume when you want to keep adding audio, or finish the take now.'
       : recording
-        ? 'Speak naturally and keep the microphone close. Everything is sent only after you stop the recording.'
-        : `Add language mode or speech context first if you expect names, jargon, or mixed Hinglish, then start recording. For this deployment, keep clips under about ${MAX_UPLOAD_SIZE_LABEL}.`;
+        ? `Speak naturally and keep the microphone close. Long recordings are split into ${Math.round(RECORDING_CHUNK_TIMESLICE_MS / 60000)} minute audio segments and uploaded in the background.`
+        : 'Add language mode or speech context first if you expect names, jargon, or mixed Hinglish, then start recording.';
 
   const primaryButtonLabel = recording
     ? 'Finish Recording'
@@ -441,6 +559,10 @@ export default function Home() {
               <div className={styles.metaItem}>
                 <span className={styles.metaLabel}>Language</span>
                 <strong>{LANGUAGE_OPTIONS.find((option) => option.value === languageMode)?.label}</strong>
+              </div>
+              <div className={styles.metaItem}>
+                <span className={styles.metaLabel}>Segments</span>
+                <strong>{uploadedChunkCount ? uploadedChunkCount : recording || loading ? 'Streaming' : 'Waiting'}</strong>
               </div>
               <div className={styles.metaItem}>
                 <span className={styles.metaLabel}>Transcript</span>
