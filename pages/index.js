@@ -33,12 +33,16 @@ function getSupportedAudioConfig() {
   return { mimeType, extension: getFileExtensionForMimeType(mimeType) };
 }
 
+const WHATSAPP_PREFILL_LIMIT = 3200;
+
 export default function Home() {
   const [recording, setRecording] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [summary, setSummary] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [shareNotice, setShareNotice] = useState('');
+  const [whatsAppNumber, setWhatsAppNumber] = useState('');
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const audioConfigRef = useRef({ mimeType: '', extension: 'webm' });
@@ -63,6 +67,7 @@ export default function Home() {
         mimeType: resolvedMimeType,
         extension: getFileExtensionForMimeType(resolvedMimeType),
       };
+      setShareNotice('');
       setError('');
       setTranscript('');
       setSummary('');
@@ -101,6 +106,7 @@ export default function Home() {
 
   const processAudio = async (audioBlob, fileName) => {
     setLoading(true);
+    setShareNotice('');
     setError('');
 
     const formData = new FormData();
@@ -126,6 +132,104 @@ export default function Home() {
       setError(message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const buildExportText = (type) => {
+    const exportedAt = new Date().toLocaleString();
+    const sections = ['Voice Note Studio Export', `Created: ${exportedAt}`];
+
+    if (type !== 'summary' && transcript) {
+      sections.push(`Transcript\n${transcript}`);
+    }
+
+    if (type !== 'transcript' && summary) {
+      sections.push(`Summary\n${summary}`);
+    }
+
+    return sections.join('\n\n');
+  };
+
+  const buildWhatsAppUrl = (text) => {
+    const cleanNumber = whatsAppNumber.replace(/\D/g, '');
+    const baseUrl = cleanNumber ? `https://wa.me/${cleanNumber}` : 'https://wa.me/';
+    const query = new URLSearchParams({ text });
+    return `${baseUrl}?${query.toString()}`;
+  };
+
+  const copyExportText = async (text) => {
+    if (!navigator.clipboard?.writeText) {
+      throw new Error('Clipboard access is not available in this browser.');
+    }
+
+    await navigator.clipboard.writeText(text);
+  };
+
+  const handleWhatsAppExport = async (type) => {
+    const exportText = buildExportText(type);
+
+    if (!exportText.trim()) {
+      setShareNotice('Record audio first so there is something to export.');
+      return;
+    }
+
+    const popup = window.open('', '_blank', 'noopener,noreferrer');
+    const label =
+      type === 'summary' ? 'summary' : type === 'transcript' ? 'transcript' : 'full notes';
+
+    try {
+      if (exportText.length > WHATSAPP_PREFILL_LIMIT) {
+        await copyExportText(exportText);
+
+        if (popup) {
+          popup.location.href = buildWhatsAppUrl(
+            'Your Voice Note Studio export is copied. Paste it here to send the full notes.'
+          );
+        }
+
+        setShareNotice(
+          `The ${label} was copied to your clipboard because it is too long to prefill safely in WhatsApp. Paste it into the chat after WhatsApp opens.`
+        );
+        return;
+      }
+
+      if (popup) {
+        popup.location.href = buildWhatsAppUrl(exportText);
+      } else {
+        window.open(buildWhatsAppUrl(exportText), '_blank', 'noopener,noreferrer');
+      }
+
+      setShareNotice(`Opened WhatsApp with the ${label} ready to send.`);
+    } catch (shareError) {
+      if (popup && !popup.closed) {
+        popup.close();
+      }
+
+      console.error('WhatsApp export failed:', shareError);
+      setShareNotice(
+        shareError instanceof Error
+          ? shareError.message
+          : 'Could not prepare the WhatsApp export.'
+      );
+    }
+  };
+
+  const handleCopyExport = async () => {
+    const exportText = buildExportText('all');
+
+    if (!exportText.trim()) {
+      setShareNotice('Record audio first so there is something to copy.');
+      return;
+    }
+
+    try {
+      await copyExportText(exportText);
+      setShareNotice('Transcript and summary copied to your clipboard.');
+    } catch (copyError) {
+      console.error('Copy failed:', copyError);
+      setShareNotice(
+        copyError instanceof Error ? copyError.message : 'Could not copy the export text.'
+      );
     }
   };
 
@@ -255,6 +359,67 @@ export default function Home() {
               Your recording stays on the page until you start a new take.
             </p>
           </div>
+
+          {hasResults && (
+            <div className={styles.exportPanel}>
+              <div className={styles.exportIntro}>
+                <p className={styles.exportEyebrow}>WhatsApp Export</p>
+                <h3 className={styles.exportTitle}>Send transcript and summary straight to chat</h3>
+                <p className={styles.exportText}>
+                  Add a WhatsApp number with country code if you want to open a specific chat, or
+                  leave it blank to choose inside WhatsApp. Long exports are copied to your
+                  clipboard automatically when needed.
+                </p>
+              </div>
+
+              <div className={styles.exportTools}>
+                <label className={styles.exportField}>
+                  <span className={styles.exportFieldLabel}>WhatsApp Number</span>
+                  <input
+                    className={styles.exportInput}
+                    type="tel"
+                    inputMode="tel"
+                    placeholder="Optional, e.g. 919876543210"
+                    value={whatsAppNumber}
+                    onChange={(event) => setWhatsAppNumber(event.target.value)}
+                  />
+                </label>
+
+                <div className={styles.exportActions}>
+                  <button
+                    type="button"
+                    className={styles.exportButton}
+                    onClick={() => handleWhatsAppExport('summary')}
+                  >
+                    WhatsApp Summary
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.exportButton}
+                    onClick={() => handleWhatsAppExport('transcript')}
+                  >
+                    WhatsApp Transcript
+                  </button>
+                  <button
+                    type="button"
+                    className={[styles.exportButton, styles.exportPrimary].join(' ')}
+                    onClick={() => handleWhatsAppExport('all')}
+                  >
+                    WhatsApp Full Notes
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.exportButtonSecondary}
+                    onClick={handleCopyExport}
+                  >
+                    Copy Full Notes
+                  </button>
+                </div>
+
+                <p className={styles.exportNotice}>{shareNotice || ' '}</p>
+              </div>
+            </div>
+          )}
 
           <div className={styles.resultsGrid}>
             <article className={styles.resultCard}>
