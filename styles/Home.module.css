@@ -85,8 +85,7 @@
 
 .heroCopy,
 .controlPanel,
-.resultCard,
-.featureCard {
+.resultCard {
   backdrop-filter: blur(18px);
 }
 
@@ -100,7 +99,6 @@
 .eyebrow,
 .panelLabel,
 .sectionEyebrow,
-.featureLabel,
 .metaLabel,
 .resultTag {
   letter-spacing: 0.16em;
@@ -111,7 +109,6 @@
 
 .eyebrow,
 .sectionEyebrow,
-.featureLabel,
 .metaLabel {
   color: var(--muted);
 }
@@ -136,29 +133,6 @@
   color: var(--muted);
   font-size: clamp(1.04rem, 1.8vw, 1.28rem);
   line-height: 1.72;
-}
-
-.featureGrid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-  margin-top: 32px;
-}
-
-.featureCard {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-  padding: 18px;
-  border: 1px solid var(--line);
-  border-radius: 22px;
-  background: rgba(255, 252, 247, 0.64);
-  box-shadow: 0 14px 30px rgba(23, 32, 51, 0.06);
-}
-
-.featureValue {
-  font-size: 1.02rem;
-  line-height: 1.45;
 }
 
 .controlPanel {
@@ -516,7 +490,6 @@
     padding: 24px 16px 56px;
   }
 
-  .featureGrid,
   .resultsGrid,
   .panelMeta {
     grid-template-columns: 1fr;

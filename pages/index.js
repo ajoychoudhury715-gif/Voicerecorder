@@ -184,21 +184,6 @@ export default function Home() {
               a clean transcript and a structured summary with action items, decisions, and a sharp
               overview.
             </p>
-
-            <div className={styles.featureGrid}>
-              <article className={styles.featureCard}>
-                <span className={styles.featureLabel}>Capture</span>
-                <strong className={styles.featureValue}>One-button recording in the browser</strong>
-              </article>
-              <article className={styles.featureCard}>
-                <span className={styles.featureLabel}>Clarity</span>
-                <strong className={styles.featureValue}>Transcript first, summary right after</strong>
-              </article>
-              <article className={styles.featureCard}>
-                <span className={styles.featureLabel}>Output</span>
-                <strong className={styles.featureValue}>Built for decisions, owners, and next steps</strong>
-              </article>
-            </div>
           </div>
 
           <aside className={styles.controlPanel}>
