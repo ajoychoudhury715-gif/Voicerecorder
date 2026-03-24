@@ -10,6 +10,7 @@ A web-based voice recording and summarization tool using Groq's API, deployed on
 - Generate structured summaries with Llama 3.1 8B Instant
 - Improve recognition with Hindi/English language modes and optional speech context for names or jargon
 - Process multi-hour conversations by recording and transcribing in sequential audio segments
+- Expose a remote MCP endpoint so the same pipeline can be used as a ChatGPT app
 
 ## Setup
 
@@ -23,3 +24,17 @@ A web-based voice recording and summarization tool using Groq's API, deployed on
 ## Deployment
 
 This project is configured for Vercel deployment with Next.js and a server-side `/api/transcribe` route.
+
+## ChatGPT App Endpoint
+
+The app now exposes a remote MCP server at `/mcp`.
+
+- Local endpoint: `http://localhost:3000/mcp`
+- Production endpoint pattern: `https://your-domain.example/mcp`
+- Current production endpoint: `https://voicerecorder-omega.vercel.app/mcp`
+
+Available ChatGPT tool:
+
+- `analyze_voice_note`: accepts transcript text or one or more public audio URLs, then returns a transcript, structured summary, action items, key decisions, and a WhatsApp-ready brief.
+
+To connect it inside ChatGPT Developer Mode, add the deployed `/mcp` URL as a custom MCP server.
