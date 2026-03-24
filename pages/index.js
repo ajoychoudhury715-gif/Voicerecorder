@@ -7,6 +7,11 @@ const AUDIO_MIME_TYPES = [
   'audio/mp4',
   'audio/ogg;codecs=opus',
 ];
+const LANGUAGE_OPTIONS = [
+  { value: 'auto', label: 'Hindi + English' },
+  { value: 'hi', label: 'Hindi' },
+  { value: 'en', label: 'English' },
+];
 
 function getFileExtensionForMimeType(mimeType) {
   if (mimeType.includes('mp4')) {
@@ -43,6 +48,7 @@ export default function Home() {
   const [error, setError] = useState('');
   const [shareNotice, setShareNotice] = useState('');
   const [whatsAppNumber, setWhatsAppNumber] = useState('');
+  const [languageMode, setLanguageMode] = useState('auto');
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const audioConfigRef = useRef({ mimeType: '', extension: 'webm' });
@@ -111,6 +117,7 @@ export default function Home() {
 
     const formData = new FormData();
     formData.append('audio', audioBlob, fileName);
+    formData.append('language', languageMode);
 
     try {
       const response = await fetch('/api/transcribe', {
@@ -351,12 +358,41 @@ export default function Home() {
                 <strong>{(audioConfigRef.current.extension || 'webm').toUpperCase()}</strong>
               </div>
               <div className={styles.metaItem}>
+                <span className={styles.metaLabel}>Language</span>
+                <strong>{LANGUAGE_OPTIONS.find((option) => option.value === languageMode)?.label}</strong>
+              </div>
+              <div className={styles.metaItem}>
                 <span className={styles.metaLabel}>Transcript</span>
                 <strong>{transcript ? 'Ready' : 'Waiting'}</strong>
               </div>
               <div className={styles.metaItem}>
                 <span className={styles.metaLabel}>Summary</span>
                 <strong>{summary ? 'Ready' : 'Waiting'}</strong>
+              </div>
+            </div>
+
+            <div className={styles.languagePanel}>
+              <div className={styles.languageHeader}>
+                <span className={styles.languageEyebrow}>Language Mode</span>
+                <p className={styles.languageHint}>
+                  Use mixed mode for Hinglish conversations. Choose a single language to improve transcription accuracy and speed.
+                </p>
+              </div>
+              <div className={styles.languageOptions}>
+                {LANGUAGE_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={[
+                      styles.languageOption,
+                      languageMode === option.value ? styles.languageOptionActive : '',
+                    ].join(' ')}
+                    onClick={() => setLanguageMode(option.value)}
+                    disabled={loading || recording}
+                  >
+                    {option.label}
+                  </button>
+                ))}
               </div>
             </div>
           </aside>

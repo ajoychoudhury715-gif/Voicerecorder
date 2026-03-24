@@ -291,7 +291,7 @@
 
 .panelMeta {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -306,6 +306,75 @@
   display: block;
   margin-top: 8px;
   font-size: 0.98rem;
+}
+
+.languagePanel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 18px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+.languageHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.languageEyebrow {
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: rgba(248, 245, 235, 0.7);
+}
+
+.languageHint {
+  max-width: 30rem;
+  margin: 0;
+  color: rgba(248, 245, 235, 0.74);
+  line-height: 1.6;
+}
+
+.languageOptions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.languageOption {
+  min-height: 48px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: #f8f5eb;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    transform 180ms ease,
+    background-color 180ms ease,
+    border-color 180ms ease,
+    opacity 180ms ease;
+}
+
+.languageOption:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.languageOption:disabled {
+  opacity: 0.56;
+  cursor: not-allowed;
+}
+
+.languageOptionActive {
+  border-color: rgba(255, 177, 139, 0.66);
+  background: rgba(255, 177, 139, 0.16);
 }
 
 .resultsSection {
@@ -579,6 +648,14 @@
 
   .exportPanel,
   .exportActions {
+    grid-template-columns: 1fr;
+  }
+
+  .languageHeader {
+    flex-direction: column;
+  }
+
+  .languageOptions {
     grid-template-columns: 1fr;
   }
 

@@ -60,11 +60,15 @@ function sanitizeProviderErrorMessage(message) {
   return message;
 }
 
-async function transcribeAudio(audioFile) {
+async function transcribeAudio(audioFile, language) {
   const formData = new FormData();
   formData.append('file', audioFile, audioFile.name || 'recording.webm');
   formData.append('model', TRANSCRIPTION_MODEL);
   formData.append('response_format', 'text');
+
+  if (language === 'hi' || language === 'en') {
+    formData.append('language', language);
+  }
 
   const response = await fetch(`${API_BASE_URL}/audio/transcriptions`, {
     method: 'POST',
@@ -81,7 +85,18 @@ async function transcribeAudio(audioFile) {
   return (await response.text()).trim();
 }
 
-async function summarizeTranscript(transcript) {
+function buildSummaryPrompt(language) {
+  const languageInstruction =
+    language === 'hi'
+      ? 'Write the full summary in Hindi.'
+      : language === 'en'
+        ? 'Write the full summary in English.'
+        : 'Write the summary in the same language style as the transcript. If the speaker mixed Hindi and English, keep the summary naturally bilingual instead of forcing only one language.';
+
+  return `${SUMMARY_PROMPT}\n\n${languageInstruction}`;
+}
+
+async function summarizeTranscript(transcript, language) {
   const response = await fetch(`${API_BASE_URL}/chat/completions`, {
     method: 'POST',
     headers: {
@@ -92,7 +107,7 @@ async function summarizeTranscript(transcript) {
       model: SUMMARY_MODEL,
       temperature: 0.3,
       messages: [
-        { role: 'system', content: SUMMARY_PROMPT },
+        { role: 'system', content: buildSummaryPrompt(language) },
         { role: 'user', content: `Transcript:\n\n${transcript}` },
       ],
     }),
@@ -123,6 +138,9 @@ export async function POST(request) {
   try {
     const formData = await request.formData();
     const audioFile = formData.get('audio');
+    const language = formData.get('language');
+    const normalizedLanguage =
+      language === 'hi' || language === 'en' ? language : 'auto';
 
     if (!(audioFile instanceof File)) {
       return Response.json({ error: 'No audio file provided.' }, { status: 400 });
@@ -139,13 +157,13 @@ export async function POST(request) {
       );
     }
 
-    const transcript = await transcribeAudio(audioFile);
+    const transcript = await transcribeAudio(audioFile, normalizedLanguage);
 
     if (!transcript) {
       return Response.json({ error: 'No transcript generated.' }, { status: 400 });
     }
 
-    const summary = await summarizeTranscript(transcript);
+    const summary = await summarizeTranscript(transcript, normalizedLanguage);
 
     return Response.json({ transcript, summary });
   } catch (error) {
