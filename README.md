@@ -1,18 +1,18 @@
 # Voice Summary Tool on Vercel
 
-A web-based voice recording and summarization tool using OpenAI's Whisper and GPT-4o, deployed on Vercel with Next.js route handlers.
+A web-based voice recording and summarization tool using Groq's API, deployed on Vercel with Next.js route handlers.
 
 ## Features
 
 - Record audio directly in the browser
-- Transcribe speech using OpenAI Whisper
-- Generate structured summaries with GPT-4o
+- Transcribe speech using Groq Whisper Large V3 Turbo
+- Generate structured summaries with Llama 3.1 8B Instant
 
 ## Setup
 
 1. Clone or copy this project.
 2. Install dependencies: `npm install`
-3. Set your OpenAI API key in `.env`
+3. Set your Groq API key in `.env` as `GROQ_API_KEY=...`
 4. Run locally: `npm run dev`
 5. Deploy to Vercel: `vercel`
 
