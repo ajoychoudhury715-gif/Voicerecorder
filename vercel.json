@@ -5,10 +5,5 @@
       "src": "package.json",
       "use": "@vercel/next"
     }
-  ],
-  "functions": {
-    "pages/api/**/*.py": {
-      "runtime": "python3.9"
-    }
-  }
+  ]
 }
