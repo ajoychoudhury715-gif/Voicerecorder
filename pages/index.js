@@ -42,6 +42,7 @@ const WHATSAPP_PREFILL_LIMIT = 3200;
 
 export default function Home() {
   const [recording, setRecording] = useState(false);
+  const [paused, setPaused] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [summary, setSummary] = useState('');
   const [loading, setLoading] = useState(false);
@@ -73,6 +74,7 @@ export default function Home() {
         mimeType: resolvedMimeType,
         extension: getFileExtensionForMimeType(resolvedMimeType),
       };
+      setPaused(false);
       setShareNotice('');
       setError('');
       setTranscript('');
@@ -85,6 +87,7 @@ export default function Home() {
       };
 
       mediaRecorder.onstop = async () => {
+        setPaused(false);
         const { mimeType, extension } = audioConfigRef.current;
         const audioBlob = new Blob(audioChunksRef.current, {
           type: mimeType || 'audio/webm',
@@ -107,7 +110,25 @@ export default function Home() {
     if (mediaRecorderRef.current && recording) {
       mediaRecorderRef.current.stop();
       setRecording(false);
+      setPaused(false);
     }
+  };
+
+  const togglePauseRecording = () => {
+    const mediaRecorder = mediaRecorderRef.current;
+
+    if (!mediaRecorder || !recording) {
+      return;
+    }
+
+    if (paused) {
+      mediaRecorder.resume();
+      setPaused(false);
+      return;
+    }
+
+    mediaRecorder.pause();
+    setPaused(true);
   };
 
   const processAudio = async (audioBlob, fileName) => {
@@ -258,6 +279,8 @@ export default function Home() {
     ? 'Attention needed'
     : loading
       ? 'Generating notes'
+      : paused
+        ? 'Recording paused'
       : recording
         ? 'Recording live'
         : hasResults
@@ -270,6 +293,8 @@ export default function Home() {
       ? styles.statusError
       : loading
         ? styles.statusLoading
+        : paused
+          ? styles.statusPaused
         : recording
           ? styles.statusRecording
           : styles.statusReady,
@@ -279,6 +304,8 @@ export default function Home() {
     ? error
     : loading
       ? 'Transcribing your recording and shaping the summary now.'
+      : paused
+        ? 'Recording is paused. Resume when you want to keep adding audio, or finish the take now.'
       : recording
         ? 'Speak naturally. Everything is sent only after you stop the recording.'
         : 'Tap once to start recording, then tap again when you are ready for notes.';
@@ -288,6 +315,7 @@ export default function Home() {
     : loading
       ? 'Processing...'
       : 'Start Recording';
+  const pauseButtonLabel = paused ? 'Resume Recording' : 'Pause Recording';
 
   return (
     <div className={styles.page}>
@@ -315,7 +343,7 @@ export default function Home() {
                   key={index}
                   className={[
                     styles.waveBar,
-                    recording || loading ? styles.waveActive : '',
+                    (recording && !paused) || loading ? styles.waveActive : '',
                   ].join(' ')}
                   style={{
                     '--bar-height': `${height}%`,
@@ -325,23 +353,46 @@ export default function Home() {
               ))}
             </div>
 
-            <button
-              className={[
-                styles.primaryButton,
-                recording ? styles.stopButton : styles.startButton,
-              ].join(' ')}
-              onClick={recording ? stopRecording : startRecording}
-              disabled={loading}
-            >
-              <span
+            <div className={styles.controlActions}>
+              <button
                 className={[
-                  styles.buttonIcon,
-                  recording ? styles.buttonIconStop : styles.buttonIconStart,
+                  styles.primaryButton,
+                  recording ? styles.stopButton : styles.startButton,
                 ].join(' ')}
-                aria-hidden="true"
-              />
-              <span>{primaryButtonLabel}</span>
-            </button>
+                onClick={recording ? stopRecording : startRecording}
+                disabled={loading}
+              >
+                <span
+                  className={[
+                    styles.buttonIcon,
+                    recording ? styles.buttonIconStop : styles.buttonIconStart,
+                  ].join(' ')}
+                  aria-hidden="true"
+                />
+                <span>{primaryButtonLabel}</span>
+              </button>
+
+              {recording && (
+                <button
+                  type="button"
+                  className={[
+                    styles.secondaryButton,
+                    paused ? styles.resumeButton : styles.pauseButton,
+                  ].join(' ')}
+                  onClick={togglePauseRecording}
+                  disabled={loading}
+                >
+                  <span
+                    className={[
+                      styles.secondaryButtonIcon,
+                      paused ? styles.buttonIconResume : styles.buttonIconPause,
+                    ].join(' ')}
+                    aria-hidden="true"
+                  />
+                  <span>{pauseButtonLabel}</span>
+                </button>
+              )}
+            </div>
 
             <p className={styles.helperText}>{helperText}</p>
 
