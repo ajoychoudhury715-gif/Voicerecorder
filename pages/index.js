@@ -173,19 +173,6 @@ export default function Home() {
 
       <main className={styles.shell}>
         <section className={styles.heroSection}>
-          <div className={styles.heroCopy}>
-            <p className={styles.eyebrow}>Voice Note Studio</p>
-            <h1 className={styles.title}>
-              Capture the room.
-              <span className={styles.titleAccent}> Leave with the brief.</span>
-            </h1>
-            <p className={styles.description}>
-              Record a meeting recap, an idea dump, or a quick voice memo. The app turns it into
-              a clean transcript and a structured summary with action items, decisions, and a sharp
-              overview.
-            </p>
-          </div>
-
           <aside className={styles.controlPanel}>
             <div className={styles.panelTop}>
               <div>

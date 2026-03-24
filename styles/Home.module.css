@@ -77,26 +77,14 @@
 }
 
 .heroSection {
-  display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(360px, 0.85fr);
-  gap: 24px;
-  align-items: stretch;
+  display: block;
 }
 
-.heroCopy,
 .controlPanel,
 .resultCard {
   backdrop-filter: blur(18px);
 }
 
-.heroCopy {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  padding: 32px 12px 12px 4px;
-}
-
-.eyebrow,
 .panelLabel,
 .sectionEyebrow,
 .metaLabel,
@@ -107,32 +95,9 @@
   font-weight: 700;
 }
 
-.eyebrow,
 .sectionEyebrow,
 .metaLabel {
   color: var(--muted);
-}
-
-.title {
-  margin: 12px 0 18px;
-  max-width: 11ch;
-  font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
-  font-size: clamp(3.4rem, 8vw, 6.6rem);
-  line-height: 0.92;
-  letter-spacing: -0.05em;
-  text-wrap: balance;
-}
-
-.titleAccent {
-  color: var(--accent);
-}
-
-.description {
-  max-width: 38rem;
-  margin: 0;
-  color: var(--muted);
-  font-size: clamp(1.04rem, 1.8vw, 1.28rem);
-  line-height: 1.72;
 }
 
 .controlPanel {
@@ -463,18 +428,6 @@
 }
 
 @media (max-width: 1080px) {
-  .heroSection {
-    grid-template-columns: 1fr;
-  }
-
-  .heroCopy {
-    padding-right: 0;
-  }
-
-  .title {
-    max-width: 12ch;
-  }
-
   .controlPanel {
     min-height: auto;
   }
@@ -509,10 +462,6 @@
   .waveform {
     min-height: 116px;
     gap: 6px;
-  }
-
-  .title {
-    font-size: clamp(2.8rem, 14vw, 4.4rem);
   }
 
   .resultCard {
