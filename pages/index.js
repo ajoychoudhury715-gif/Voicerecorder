@@ -12,6 +12,15 @@ const LANGUAGE_OPTIONS = [
   { value: 'hi', label: 'Hindi' },
   { value: 'en', label: 'English' },
 ];
+const MICROPHONE_CONSTRAINTS = {
+  echoCancellation: true,
+  noiseSuppression: true,
+  autoGainControl: true,
+  channelCount: { ideal: 1 },
+  sampleRate: { ideal: 16000 },
+  sampleSize: { ideal: 16 },
+};
+const MAX_SPEECH_CONTEXT_LENGTH = 500;
 
 function getFileExtensionForMimeType(mimeType) {
   if (mimeType.includes('mp4')) {
@@ -50,6 +59,7 @@ export default function Home() {
   const [shareNotice, setShareNotice] = useState('');
   const [whatsAppNumber, setWhatsAppNumber] = useState('');
   const [languageMode, setLanguageMode] = useState('auto');
+  const [speechContext, setSpeechContext] = useState('');
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const audioConfigRef = useRef({ mimeType: '', extension: 'webm' });
@@ -61,11 +71,19 @@ export default function Home() {
         throw new Error('This browser does not support audio recording.');
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: MICROPHONE_CONSTRAINTS,
+      });
       const audioConfig = getSupportedAudioConfig();
-      const mediaRecorder = audioConfig.mimeType
-        ? new MediaRecorder(stream, { mimeType: audioConfig.mimeType })
-        : new MediaRecorder(stream);
+      const mediaRecorderOptions = {
+        audioBitsPerSecond: 256000,
+      };
+
+      if (audioConfig.mimeType) {
+        mediaRecorderOptions.mimeType = audioConfig.mimeType;
+      }
+
+      const mediaRecorder = new MediaRecorder(stream, mediaRecorderOptions);
       const resolvedMimeType = mediaRecorder.mimeType || audioConfig.mimeType;
 
       mediaRecorderRef.current = mediaRecorder;
@@ -139,6 +157,7 @@ export default function Home() {
     const formData = new FormData();
     formData.append('audio', audioBlob, fileName);
     formData.append('language', languageMode);
+    formData.append('speechContext', speechContext.trim());
 
     try {
       const response = await fetch('/api/transcribe', {
@@ -307,8 +326,8 @@ export default function Home() {
       : paused
         ? 'Recording is paused. Resume when you want to keep adding audio, or finish the take now.'
       : recording
-        ? 'Speak naturally. Everything is sent only after you stop the recording.'
-        : 'Tap once to start recording, then tap again when you are ready for notes.';
+        ? 'Speak naturally and keep the microphone close. Everything is sent only after you stop the recording.'
+        : 'Add language mode or speech context first if you expect names, jargon, or mixed Hinglish, then start recording.';
 
   const primaryButtonLabel = recording
     ? 'Finish Recording'
@@ -445,6 +464,40 @@ export default function Home() {
                   </button>
                 ))}
               </div>
+            </div>
+
+            <div className={styles.accuracyPanel}>
+              <div className={styles.accuracyHeader}>
+                <span className={styles.accuracyEyebrow}>Speech Context</span>
+                <p className={styles.accuracyHint}>
+                  Add names, brand terms, abbreviations, or project jargon before you
+                  record. These preferred spellings are sent with the audio to reduce
+                  recognition mistakes.
+                </p>
+              </div>
+
+              <label className={styles.contextField}>
+                <span className={styles.contextLabel}>Names, products, jargon</span>
+                <textarea
+                  className={styles.contextInput}
+                  placeholder="Examples: Ajoy Choudhury, Groq, Vercel, Q4 roadmap, standup, HSR Layout"
+                  value={speechContext}
+                  maxLength={MAX_SPEECH_CONTEXT_LENGTH}
+                  onChange={(event) => setSpeechContext(event.target.value)}
+                  disabled={loading}
+                />
+              </label>
+
+              <div className={styles.contextMeta}>
+                <span>{speechContext.trim().length}/{MAX_SPEECH_CONTEXT_LENGTH} characters</span>
+                <span>Accuracy-first mode is enabled</span>
+              </div>
+
+              <p className={styles.contextFootnote}>
+                We can improve transcription quality a lot, especially for mixed Hindi-English
+                audio and unusual names, but no speech model can guarantee literal 100%
+                accuracy on every recording.
+              </p>
             </div>
           </aside>
         </section>

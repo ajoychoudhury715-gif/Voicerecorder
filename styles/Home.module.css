@@ -399,7 +399,8 @@
   font-size: 0.98rem;
 }
 
-.languagePanel {
+.languagePanel,
+.accuracyPanel {
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -409,14 +410,17 @@
   border: 1px solid rgba(255, 255, 255, 0.09);
 }
 
-.languageHeader {
+.languageHeader,
+.accuracyHeader {
   display: flex;
   justify-content: space-between;
   gap: 16px;
   align-items: flex-start;
 }
 
-.languageEyebrow {
+.languageEyebrow,
+.accuracyEyebrow,
+.contextLabel {
   letter-spacing: 0.16em;
   text-transform: uppercase;
   font-size: 0.76rem;
@@ -424,7 +428,9 @@
   color: rgba(248, 245, 235, 0.7);
 }
 
-.languageHint {
+.languageHint,
+.accuracyHint,
+.contextFootnote {
   max-width: 30rem;
   margin: 0;
   color: rgba(248, 245, 235, 0.74);
@@ -466,6 +472,47 @@
 .languageOptionActive {
   border-color: rgba(255, 177, 139, 0.66);
   background: rgba(255, 177, 139, 0.16);
+}
+
+.contextField {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.contextInput {
+  width: 100%;
+  min-height: 112px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  color: #f8f5eb;
+  font: inherit;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.contextInput::placeholder {
+  color: rgba(248, 245, 235, 0.42);
+}
+
+.contextInput:focus {
+  outline: 2px solid rgba(255, 177, 139, 0.24);
+  outline-offset: 2px;
+}
+
+.contextInput:disabled {
+  opacity: 0.68;
+  cursor: wait;
+}
+
+.contextMeta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: rgba(248, 245, 235, 0.58);
+  font-size: 0.82rem;
 }
 
 .resultsSection {
@@ -742,7 +789,9 @@
     grid-template-columns: 1fr;
   }
 
-  .languageHeader {
+  .languageHeader,
+  .accuracyHeader,
+  .contextMeta {
     flex-direction: column;
   }
 

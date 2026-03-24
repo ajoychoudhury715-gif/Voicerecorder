@@ -17,9 +17,10 @@ Keep the language professional and concise. Do not add anything outside these th
 `.trim();
 
 const API_BASE_URL = 'https://api.groq.com/openai/v1';
-const TRANSCRIPTION_MODEL = 'whisper-large-v3-turbo';
+const TRANSCRIPTION_MODEL = 'whisper-large-v3';
 const SUMMARY_MODEL = 'llama-3.1-8b-instant';
-const MAX_FREE_TIER_AUDIO_BYTES = 25 * 1024 * 1024;
+const MAX_AUDIO_BYTES = 100 * 1024 * 1024;
+const MAX_SPEECH_CONTEXT_CHARS = 500;
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -60,14 +61,52 @@ function sanitizeProviderErrorMessage(message) {
   return message;
 }
 
-async function transcribeAudio(audioFile, language) {
+function normalizeSpeechContext(value) {
+  if (typeof value !== 'string') {
+    return '';
+  }
+
+  return value.replace(/\s+/g, ' ').trim().slice(0, MAX_SPEECH_CONTEXT_CHARS);
+}
+
+function buildTranscriptionPrompt(language, speechContext) {
+  const instructions = [
+    'Transcribe the audio faithfully.',
+    'Use natural punctuation and paragraph breaks, but do not summarize, translate, or paraphrase.',
+    'Preserve names, product terms, acronyms, numbers, dates, and URLs exactly when they are clear.',
+  ];
+
+  if (language === 'hi') {
+    instructions.push('The spoken language is Hindi.');
+  } else if (language === 'en') {
+    instructions.push('The spoken language is English.');
+  } else {
+    instructions.push('The speaker may switch naturally between Hindi and English in the same sentence.');
+  }
+
+  if (speechContext) {
+    instructions.push(
+      `If these names or terms are spoken, prefer these spellings exactly: ${speechContext}`
+    );
+  }
+
+  return instructions.join(' ');
+}
+
+async function transcribeAudio(audioFile, language, speechContext) {
   const formData = new FormData();
   formData.append('file', audioFile, audioFile.name || 'recording.webm');
   formData.append('model', TRANSCRIPTION_MODEL);
-  formData.append('response_format', 'text');
+  formData.append('response_format', 'verbose_json');
+  formData.append('temperature', '0');
 
   if (language === 'hi' || language === 'en') {
     formData.append('language', language);
+  }
+
+  const prompt = buildTranscriptionPrompt(language, speechContext);
+  if (prompt) {
+    formData.append('prompt', prompt);
   }
 
   const response = await fetch(`${API_BASE_URL}/audio/transcriptions`, {
@@ -82,10 +121,11 @@ async function transcribeAudio(audioFile, language) {
     throw new Error(await extractErrorMessage(response));
   }
 
-  return (await response.text()).trim();
+  const data = await response.json();
+  return data?.text?.trim() || '';
 }
 
-function buildSummaryPrompt(language) {
+function buildSummaryPrompt(language, speechContext) {
   const languageInstruction =
     language === 'hi'
       ? 'Write the full summary in Hindi.'
@@ -93,10 +133,14 @@ function buildSummaryPrompt(language) {
         ? 'Write the full summary in English.'
         : 'Write the summary in the same language style as the transcript. If the speaker mixed Hindi and English, keep the summary naturally bilingual instead of forcing only one language.';
 
-  return `${SUMMARY_PROMPT}\n\n${languageInstruction}`;
+  const glossaryInstruction = speechContext
+    ? `Preserve the exact spelling of these names or terms whenever they appear in the transcript or are clearly implied: ${speechContext}`
+    : '';
+
+  return [SUMMARY_PROMPT, languageInstruction, glossaryInstruction].filter(Boolean).join('\n\n');
 }
 
-async function summarizeTranscript(transcript, language) {
+async function summarizeTranscript(transcript, language, speechContext) {
   const response = await fetch(`${API_BASE_URL}/chat/completions`, {
     method: 'POST',
     headers: {
@@ -107,7 +151,7 @@ async function summarizeTranscript(transcript, language) {
       model: SUMMARY_MODEL,
       temperature: 0.3,
       messages: [
-        { role: 'system', content: buildSummaryPrompt(language) },
+        { role: 'system', content: buildSummaryPrompt(language, speechContext) },
         { role: 'user', content: `Transcript:\n\n${transcript}` },
       ],
     }),
@@ -139,6 +183,7 @@ export async function POST(request) {
     const formData = await request.formData();
     const audioFile = formData.get('audio');
     const language = formData.get('language');
+    const speechContext = normalizeSpeechContext(formData.get('speechContext'));
     const normalizedLanguage =
       language === 'hi' || language === 'en' ? language : 'auto';
 
@@ -150,20 +195,20 @@ export async function POST(request) {
       return Response.json({ error: 'The recorded audio file is empty.' }, { status: 400 });
     }
 
-    if (audioFile.size > MAX_FREE_TIER_AUDIO_BYTES) {
+    if (audioFile.size > MAX_AUDIO_BYTES) {
       return Response.json(
-        { error: 'The audio file is larger than the Groq free-tier 25 MB upload limit.' },
+        { error: 'The audio file is larger than the current 100 MB upload limit.' },
         { status: 400 }
       );
     }
 
-    const transcript = await transcribeAudio(audioFile, normalizedLanguage);
+    const transcript = await transcribeAudio(audioFile, normalizedLanguage, speechContext);
 
     if (!transcript) {
       return Response.json({ error: 'No transcript generated.' }, { status: 400 });
     }
 
-    const summary = await summarizeTranscript(transcript, normalizedLanguage);
+    const summary = await summarizeTranscript(transcript, normalizedLanguage, speechContext);
 
     return Response.json({ transcript, summary });
   } catch (error) {

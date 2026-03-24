@@ -5,8 +5,9 @@ A web-based voice recording and summarization tool using Groq's API, deployed on
 ## Features
 
 - Record audio directly in the browser
-- Transcribe speech using Groq Whisper Large V3 Turbo
+- Transcribe speech using Groq Whisper Large V3 in accuracy-first mode
 - Generate structured summaries with Llama 3.1 8B Instant
+- Improve recognition with Hindi/English language modes and optional speech context for names or jargon
 
 ## Setup
 
